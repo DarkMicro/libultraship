@@ -55,6 +55,12 @@
 
 #endif
 
+//Windows 8.1 or newer for ShellScalingApi
+#if WINVER >= 0x0603
+  #include <ShellScalingApi.h>
+  #define WinDPIperMonitor 1
+#endif
+
 #if defined(ENABLE_DX11) || defined(ENABLE_DX12)
 #include <graphic/Fast3D/gfx_direct3d11.h>
 #include <ImGui/backends/imgui_impl_dx11.h>
@@ -236,6 +242,7 @@ void Gui::ImGuiBackendInit() {
         default:
             break;
     }
+   
 }
 
 void Gui::LoadTextureFromRawImage(const std::string& name, const std::string& path) {
@@ -273,6 +280,24 @@ bool Gui::SupportsViewports() {
     }
 }
 
+void Gui::ScaleMenuByDPI(int dpi){
+    if (!dpi) return;
+    if (mDpiInit) {
+        mLastDpiScale = 1.f;
+        mDpiInit = false;
+    } else return;
+
+    float scale = (float)dpi / USER_DEFAULT_SCREEN_DPI;
+    float diff = scale / mLastDpiScale;
+    mLastDpiScale = scale;
+
+    try {
+        ImGui::GetStyle().ScaleAllSizes(diff);
+        ImFont* font = ImGui::GetFont();
+        font->Scale *= diff;
+    } catch (std::exception e){}
+}
+
 void Gui::Update(WindowEvent event) {
     if (mNeedsConsoleVariableSave) {
         CVarSave();
@@ -306,6 +331,33 @@ void Gui::Update(WindowEvent event) {
         default:
             break;
     }
+
+#ifdef __WIN32__
+    if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::DX11) {
+        if (event.Win32.Msg == WM_DPICHANGED || mDpiInit) {
+            int dpi = HIWORD(event.Win32.Param1);
+            ScaleMenuByDPI(dpi);
+        }
+    }
+    else if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL){
+        if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_SIZE_CHANGED || mDpiInit) {
+#ifdef WinDPIperMonitor
+        SDL_SysWMinfo wmInfo;
+        SDL_VERSION(&wmInfo.version);
+        SDL_GetWindowWMInfo(static_cast<SDL_Window*>(mImpl.Opengl.Window), &wmInfo);
+        HWND hwnd = wmInfo.info.win.window;
+        unsigned int x, y = 0;
+        GetDpiForMonitor(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &x, &y);
+        
+        int dpi = (x + y) / 2;
+#else
+        float dpi;
+        SDL_GetDisplayDPI(0, &dpi, nullptr, nullptr);
+#endif
+        ScaleMenuByDPI((int) dpi);
+        }
+#endif
+    }
 }
 
 bool Gui::ImGuiGamepadNavigationEnabled() {
@@ -328,15 +380,7 @@ void Gui::DrawMenu() {
     ImGuiWMNewFrame();
     ImGui::NewFrame();
 
-    // Get the difference between the last frame and the current Frame
-    mDpiScaleDiff = GImGui->CurrentDpiScale / mLastDpiScale;
-    // Store the current scale for next frame
-    mLastDpiScale = GImGui->CurrentDpiScale;
-
-    // Apply the scale difference to ImGui
-    ImGui::GetStyle().ScaleAllSizes(mDpiScaleDiff);
-    ImFont* font = ImGui::GetFont();
-    font->Scale *= mDpiScaleDiff;
+    if (mLastDpiScale == 0) mDpiInit = true;
 
     const std::shared_ptr<Window> wnd = Context::GetInstance()->GetWindow();
     const std::shared_ptr<Config> conf = Context::GetInstance()->GetConfig();

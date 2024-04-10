@@ -8,6 +8,7 @@
 #include <ImGui/imgui_internal.h>
 #include <memory>
 #include <SDL2/SDL.h>
+#include <SDL_syswm.h>
 #include "window/gui/ConsoleWindow.h"
 #include "window/gui/InputEditorWindow.h"
 #include "controller/deviceindex/ControllerDisconnectedWindow.h"
@@ -113,8 +114,9 @@ class Gui {
     std::map<std::string, std::shared_ptr<GuiWindow>> mGuiWindows;
 
     // DPI scale
-    float mLastDpiScale = 1.f; // Default scale is 1.0; Holds the scale of the last frame.
-    float mDpiScaleDiff;       // Scale difference factor to last frame.
+    void ScaleMenuByDPI(int dpi);
+    bool mDpiInit = false;
+    float mLastDpiScale = 0; // Default scale is 1.0; Holds the last applyed scale.
 };
 } // namespace LUS
 
