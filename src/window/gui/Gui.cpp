@@ -318,9 +318,8 @@ void Gui::Update(WindowEvent event) {
             ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(event.Win32.Handle), event.Win32.Msg, event.Win32.Param1,
                                            event.Win32.Param2);
 
-            if (event.Win32.Msg == WM_DPICHANGED || mDpiInit) {
+            if (event.Win32.Msg == WM_DPICHANGED || mDpiInit)
                 dpi = (float)GetDpiForWindow(static_cast<HWND>(event.Win32.Handle));
-            }
             break;
 #endif
         default:
