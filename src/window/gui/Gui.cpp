@@ -57,8 +57,12 @@
 
 //Windows 8.1 or newer for ShellScalingApi
 #if WINVER >= 0x0603
-  #include <ShellScalingApi.h>
-  #define WinDPIperMonitor 1
+#include <ShellScalingApi.h>
+#define WinDPIperMonitor 1
+#endif
+
+#ifndef USER_DEFAULT_SCREEN_DPI
+#define USER_DEFAULT_SCREEN_DPI 96
 #endif
 
 #if defined(ENABLE_DX11) || defined(ENABLE_DX12)
@@ -333,13 +337,18 @@ void Gui::Update(WindowEvent event) {
     }
 
 #ifdef __WIN32__
+#if defined(ENABLE_DX11) || defined(ENABLE_DX12) && WINVER >= 0x0603
     if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::DX11) {
         if (event.Win32.Msg == WM_DPICHANGED || mDpiInit) {
-            int dpi = HIWORD(event.Win32.Param1);
+            GetDpiForMonitor(MonitorFromWindow(static_cast<HWND>(event.Win32.Handle), MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &x, &y);
+        
+            int dpi = (x + y) / 2;
             ScaleMenuByDPI(dpi);
         }
     }
-    else if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL){
+    else
+#endif
+    if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL){
         if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_SIZE_CHANGED || mDpiInit) {
 #ifdef WinDPIperMonitor
         SDL_SysWMinfo wmInfo;
@@ -356,8 +365,18 @@ void Gui::Update(WindowEvent event) {
 #endif
         ScaleMenuByDPI((int) dpi);
         }
-#endif
     }
+#else
+    if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_SIZE_CHANGED || mDpiInit) {
+        float dpi;
+        int display = 0;
+        if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL)
+            display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Opengl.Window));
+        else if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_METAL)
+            display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Metal.Window));
+        SDL_GetDisplayDPI(display, &dpi, nullptr, nullptr);
+    }
+#endif
 }
 
 bool Gui::ImGuiGamepadNavigationEnabled() {
@@ -380,7 +399,7 @@ void Gui::DrawMenu() {
     ImGuiWMNewFrame();
     ImGui::NewFrame();
 
-    if (mLastDpiScale == 0) mDpiInit = true;
+    if (!mLastDpiScale) mDpiInit = true;
 
     const std::shared_ptr<Window> wnd = Context::GetInstance()->GetWindow();
     const std::shared_ptr<Config> conf = Context::GetInstance()->GetConfig();
