@@ -539,10 +539,6 @@ if (USE_OPENGLES)
     endif()
 endif()
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-target_link_libraries(libultraship PRIVATE Shcore)
-endif()
-
 #=================== Compile Options & Defs ===================
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")

@@ -55,12 +55,6 @@
 
 #endif
 
-//Windows 8.1 or newer for ShellScalingApi
-#if WINVER >= 0x0603
-#include <ShellScalingApi.h>
-#define WinDPIperMonitor 1
-#endif
-
 #ifndef USER_DEFAULT_SCREEN_DPI
 #define USER_DEFAULT_SCREEN_DPI 96
 #endif
@@ -246,7 +240,6 @@ void Gui::ImGuiBackendInit() {
         default:
             break;
     }
-   
 }
 
 void Gui::LoadTextureFromRawImage(const std::string& name, const std::string& path) {
@@ -284,29 +277,13 @@ bool Gui::SupportsViewports() {
     }
 }
 
-void Gui::ScaleMenuByDPI(int dpi){
-    if (!dpi) return;
-    if (mDpiInit) {
-        mLastDpiScale = 1.f;
-        mDpiInit = false;
-    } else return;
-
-    float scale = (float)dpi / USER_DEFAULT_SCREEN_DPI;
-    float diff = scale / mLastDpiScale;
-    mLastDpiScale = scale;
-
-    try {
-        ImGui::GetStyle().ScaleAllSizes(diff);
-        ImFont* font = ImGui::GetFont();
-        font->Scale *= diff;
-    } catch (std::exception e){}
-}
-
 void Gui::Update(WindowEvent event) {
     if (mNeedsConsoleVariableSave) {
         CVarSave();
         mNeedsConsoleVariableSave = false;
     }
+
+    float dpi = 0;
 
     switch (Context::GetInstance()->GetWindow()->GetWindowBackend()) {
 #ifdef __WIIU__
@@ -317,6 +294,26 @@ void Gui::Update(WindowEvent event) {
         case WindowBackend::SDL_OPENGL:
         case WindowBackend::SDL_METAL:
             ImGui_ImplSDL2_ProcessEvent(static_cast<const SDL_Event*>(event.Sdl.Event));
+
+            if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED ||
+                mDpiInit) {
+#ifdef __WIN32__
+                SDL_SysWMinfo wmInfo;
+                SDL_VERSION(&wmInfo.version);
+                SDL_GetWindowWMInfo(static_cast<SDL_Window*>(mImpl.Opengl.Window), &wmInfo);
+                HWND hwnd = wmInfo.info.win.window;
+
+                dpi = (float)GetDpiForWindow(hwnd);
+#else
+                int display = 0;
+                if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL)
+                    display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Opengl.Window));
+                else
+                    display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Metal.Window));
+
+                SDL_GetDisplayDPI(display, &dpi, nullptr, nullptr);
+#endif
+            }
 
 #ifdef __SWITCH__
             LUS::Switch::ImGuiProcessEvent(mImGuiIo->WantTextInput);
@@ -330,53 +327,30 @@ void Gui::Update(WindowEvent event) {
         case WindowBackend::DX11:
             ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(event.Win32.Handle), event.Win32.Msg, event.Win32.Param1,
                                            event.Win32.Param2);
+
+            if (event.Win32.Msg == WM_DPICHANGED || mDpiInit) {
+                dpi = (float)GetDpiForWindow(static_cast<HWND>(event.Win32.Handle));
+            }
             break;
 #endif
         default:
             break;
     }
 
-#ifdef __WIN32__
-#if defined(ENABLE_DX11) || defined(ENABLE_DX12) && WINVER >= 0x0603
-    if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::DX11) {
-        if (event.Win32.Msg == WM_DPICHANGED || mDpiInit) {
-            GetDpiForMonitor(MonitorFromWindow(static_cast<HWND>(event.Win32.Handle), MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &x, &y);
-        
-            int dpi = (x + y) / 2;
-            ScaleMenuByDPI(dpi);
+    if (dpi > 0) {
+        if (mDpiInit) {
+            mLastDpiScale = 1.f;
+            mDpiInit = false;
         }
+
+        float scale = dpi / USER_DEFAULT_SCREEN_DPI;
+        float diff = scale / mLastDpiScale;
+        mLastDpiScale = scale;
+
+        ImGui::GetStyle().ScaleAllSizes(diff);
+        ImFont* font = ImGui::GetFont();
+        font->Scale *= diff;
     }
-    else
-#endif
-    if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL){
-        if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_SIZE_CHANGED || mDpiInit) {
-#ifdef WinDPIperMonitor
-        SDL_SysWMinfo wmInfo;
-        SDL_VERSION(&wmInfo.version);
-        SDL_GetWindowWMInfo(static_cast<SDL_Window*>(mImpl.Opengl.Window), &wmInfo);
-        HWND hwnd = wmInfo.info.win.window;
-        unsigned int x, y = 0;
-        GetDpiForMonitor(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &x, &y);
-        
-        int dpi = (x + y) / 2;
-#else
-        float dpi;
-        SDL_GetDisplayDPI(0, &dpi, nullptr, nullptr);
-#endif
-        ScaleMenuByDPI((int) dpi);
-        }
-    }
-#else
-    if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_SIZE_CHANGED || mDpiInit) {
-        float dpi;
-        int display = 0;
-        if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL)
-            display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Opengl.Window));
-        else if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_METAL)
-            display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Metal.Window));
-        SDL_GetDisplayDPI(display, &dpi, nullptr, nullptr);
-    }
-#endif
 }
 
 bool Gui::ImGuiGamepadNavigationEnabled() {
@@ -393,13 +367,20 @@ void Gui::UnblockImGuiGamepadNavigation() {
     }
 }
 
+float Gui::GetCurrentDpiScale() {
+    if (mLastDpiScale <= 0)
+        return 1.f;
+    return mLastDpiScale;
+}
+
 void Gui::DrawMenu() {
     LUS::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console")->Update();
     ImGuiBackendNewFrame();
     ImGuiWMNewFrame();
     ImGui::NewFrame();
 
-    if (!mLastDpiScale) mDpiInit = true;
+    if (mLastDpiScale == 0)
+        mDpiInit = true;
 
     const std::shared_ptr<Window> wnd = Context::GetInstance()->GetWindow();
     const std::shared_ptr<Config> conf = Context::GetInstance()->GetConfig();
