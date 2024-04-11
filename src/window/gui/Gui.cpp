@@ -297,14 +297,6 @@ void Gui::Update(WindowEvent event) {
 
             if (static_cast<const SDL_Event*>(event.Sdl.Event)->window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED ||
                 mDpiInit) {
-#ifdef __WIN32__
-                SDL_SysWMinfo wmInfo;
-                SDL_VERSION(&wmInfo.version);
-                SDL_GetWindowWMInfo(static_cast<SDL_Window*>(mImpl.Opengl.Window), &wmInfo);
-                HWND hwnd = wmInfo.info.win.window;
-
-                dpi = (float)GetDpiForWindow(hwnd);
-#else
                 int display = 0;
                 if (Context::GetInstance()->GetWindow()->GetWindowBackend() == WindowBackend::SDL_OPENGL)
                     display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Opengl.Window));
@@ -312,9 +304,7 @@ void Gui::Update(WindowEvent event) {
                     display = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mImpl.Metal.Window));
 
                 SDL_GetDisplayDPI(display, &dpi, nullptr, nullptr);
-#endif
             }
-
 #ifdef __SWITCH__
             LUS::Switch::ImGuiProcessEvent(mImGuiIo->WantTextInput);
 #endif
